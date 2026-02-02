@@ -1,4 +1,3 @@
-```markdown
 # 🤖 AI Optimization Benchmark: Pure C Implementation
 
 ![Language](https://img.shields.io/badge/Language-C%20%7C%20Python-blue)
