@@ -1,0 +1,126 @@
+from transformers import AutoTokenizer, AutoModelForCausalLM
+import torch
+import random
+from tqdm import tqdm
+import re
+import pandas as pd
+
+# --- AYARLAR ---
+MODEL_NAME = "ytu-ce-cosmos/Turkish-Gemma-9b-T1"
+OUTPUT_TXT = "dpo_veri_seti_50.txt"
+OUTPUT_CSV = "dpo_veri_seti_50.csv"
+NUM_SAMPLES = 50
+
+# Konu havuzunu geniş tutuyoruz ki sorular çeşitli olsun
+TOPICS = [
+    "Python Listeleri", "Yapay Zeka Etikleri", "Futbol Ofsayt Kuralı", "Kara Delikler",
+    "Osmanlı'nın Yükselişi", "Sağlıklı Uyku", "Kripto Paralar", "Küresel Isınma",
+    "Java Nesne Yönelimli Programlama", "Satranç Açılışları", "Fotosentez",
+    "İkinci Dünya Savaşı", "Docker Konteynerleri", "Meditasyon", "Enflasyon Nedir",
+    "Elektrikli Arabalar", "Mars Kolonizasyonu", "Türk Kahvesi Yapımı", "Linux Komutları",
+    "SQL Veritabanı", "Gitar Akorları", "Film Senaryosu Yazımı", "Borsa Yatırımı",
+    "Kuantum Fiziği", "Psikolojik Dayanıklılık"
+]
+
+print(f"Model ({MODEL_NAME}) yükleniyor... Lütfen bekleyin.")
+
+# Model Yükleme (GPU varsa otomatik kullanır)
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+model = AutoModelForCausalLM.from_pretrained(
+    MODEL_NAME,
+    device_map="auto",
+    torch_dtype=torch.bfloat16
+)
+
+def generate(prompt, max_tokens=100, temp=0.7):
+    """Modelden metin üretmek için yardımcı fonksiyon"""
+    messages = [{"role": "user", "content": prompt}]
+
+    input_ids = tokenizer.apply_chat_template(
+        messages,
+        add_generation_prompt=True,
+        return_tensors="pt"
+    ).to(model.device)
+
+    terminators = [
+        tokenizer.eos_token_id,
+        tokenizer.convert_tokens_to_ids("<end_of_turn>")
+    ]
+
+    outputs = model.generate(
+        input_ids,
+        max_new_tokens=max_tokens,
+        eos_token_id=terminators,
+        do_sample=True,
+        temperature=temp,
+        top_p=0.9
+    )
+
+    response = outputs[0][input_ids.shape[-1]:]
+    text = tokenizer.decode(response, skip_special_tokens=True).strip()
+    return text
+
+def clean_text(text):
+    """Satır sonlarını ve gereksiz boşlukları temizler (Tek satır olması için)"""
+    text = re.sub(r'\s+', ' ', text).strip()
+    text = text.replace("|", "-") # Ayırıcı karakter metin içinde geçmesin
+    return text
+
+# --- ANA DÖNGÜ ---
+data_list = []
+
+print(f"\nToplam {NUM_SAMPLES} adet soru-cevap çifti üretiliyor...\n")
+
+# Dosyayı açıyoruz (Anlık yazmak için)
+with open(OUTPUT_TXT, "w", encoding="utf-8") as f:
+    # Başlık Sütunları
+    header = "Soru | İyi Cevap | Kötü Cevap\n"
+    f.write(header)
+
+    for i in tqdm(range(NUM_SAMPLES), desc="Üretiliyor"):
+        topic = random.choice(TOPICS)
+
+        # 1. SORU ÜRETİMİ
+        # Hız ayarı: max_tokens=50 (Sorular kısa olur)
+        q_prompt = f"'{topic}' hakkında merak uyandırıcı tek bir soru sor. Sadece soruyu yaz."
+        question_raw = generate(q_prompt, max_tokens=50, temp=0.8)
+        question = clean_text(question_raw)
+
+        # 2. İYİ CEVAP ÜRETİMİ
+        # Hız ayarı: max_tokens=100 (Yeterli uzunlukta doğru cevap)
+        good_prompt = f"'{question}' sorusuna doğru, eğitici ve yardımcı bir cevap ver. Sadece cevabı yaz."
+        good_ans_raw = generate(good_prompt, max_tokens=120, temp=0.5) # Daha düşük sıcaklık (daha tutarlı)
+        good_ans = clean_text(good_ans_raw)
+
+        # 3. KÖTÜ CEVAP ÜRETİMİ
+        # Hız ayarı: max_tokens=100
+        bad_prompt = f"'{question}' sorusuna tamamen yanlış, saçma veya konuyla alakasız bir cevap ver. Sadece cevabı yaz."
+        bad_ans_raw = generate(bad_prompt, max_tokens=120, temp=0.9) # Yüksek sıcaklık (daha saçma olması için)
+        bad_ans = clean_text(bad_ans_raw)
+
+        # Listeye ve Dosyaya Kayıt
+        line = f"{question} | {good_ans} | {bad_ans}\n"
+        f.write(line)
+        f.flush() # Her satırda kaydet
+
+        data_list.append({
+            "Soru": question,
+            "Iyi_Cevap": good_ans,
+            "Kotu_Cevap": bad_ans
+        })
+
+# CSV olarak da kaydet (Daha düzenli görünüm için)
+df = pd.DataFrame(data_list)
+df.to_csv(OUTPUT_CSV, index=False, encoding="utf-8-sig")
+
+print(f"\nİşlem Tamamlandı!")
+print(f"TXT Dosyası: {OUTPUT_TXT} (Sütun ayırıcı: | )")
+print(f"CSV Dosyası: {OUTPUT_CSV}")
+
+# Colab kullanıyorsan otomatik indirmek için:
+try:
+    from google.colab import files
+    files.download(OUTPUT_TXT)
+    files.download(OUTPUT_CSV)
+except ImportError:
+    pass
