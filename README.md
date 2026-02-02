@@ -1,7 +1,3 @@
-Tabii ki, işte projenin teknik derinliğini ve "mühendislik" yönünü öne çıkaran profesyonel Türkçe README taslağı.
-
-Bunu kopyalayıp GitHub'daki README.md dosyanın içine yapıştırabilirsin:
-
 🚀 AI Optimizasyon Algoritmaları Kıyaslaması: Saf C Uygulaması
 Bu proje, temel yapay zeka optimizasyon algoritmalarının (Gradient Descent, Stochastic Gradient Descent ve Adam) performanslarını, saf C dili kullanılarak sıfırdan geliştirilmiş bir motor üzerinden karşılaştırır.
 
